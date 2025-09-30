@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cafe Order Tracker</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    /* If you skip styles.css, keep this minimal inline CSS */
+    :root { color-scheme: light dark; }
+    body { margin: 0; font-family: system-ui, Arial, sans-serif; background: #fafafa; }
+    header { padding: 16px; text-align: center; background: #fff; border-bottom: 1px solid #eee; }
+    .container { max-width: 720px; margin: 16px auto; padding: 0 16px; }
+    .order-list { display: grid; gap: 12px; }
+    .card { background: #fff; border: 1px solid #eee; border-radius: 10px; padding: 12px; display: flex; justify-content: space-between; align-items: center; }
+    .left { display: grid; gap: 4px; }
+    .name { font-weight: 600; font-size: 1rem; }
+    .drink { color: #555; font-size: 0.95rem; }
+    .status { font-size: 0.85rem; padding: 4px 8px; border-radius: 999px; }
+    .status.in-progress { background: #ffe9b0; }
+    .status.ready { background: #c5f6d3; }
+    .empty { color: #777; text-align: center; padding: 24px; }
+    footer { text-align: center; color: #888; font-size: 0.85rem; padding: 12px 0 24px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Order tracker</h1>
+    <div id="lastUpdated" aria-live="polite"></div>
+  </header>
+
+  <main class="container">
+    <section id="orders" class="order-list" aria-live="polite"></section>
+    <div id="empty" class="empty" hidden>No active orders right now.</div>
+  </main>
+
+  <footer>
+    Scan the QR at the counter to open this page anytime.
+  </footer>
+
+  <!-- Firebase SDKs -->
+  <script type="module">
+    // Replace with your Firebase config (from Firebase Console → Project settings)
+    const firebaseConfig = {
+      apiKey: "xxxx",
+      authDomain: "xxxx.firebaseapp.com",
+      projectId: "xxxx",
+      storageBucket: "xxxx.appspot.com",
+      messagingSenderId: "xxxx",
+      appId: "xxxx"
+    };
+
+    // Firebase v9+ modular SDK
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import {
+      getFirestore, collection, query, where, orderBy, onSnapshot, Timestamp
+    } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // Query: active orders (status != 'Completed'), ordered by timeOrdered
+    // Firestore doesn’t support != neatly; common approach: store boolean `isActive` or use IN filter.
+    // For simplicity here, we’ll use IN on statuses we show.
+    const activeStatuses = ["In Progress", "Ready"];
+    const ordersRef = collection(db, "orders");
+    const q = query(ordersRef, where("status", "in", activeStatuses), orderBy("timeOrdered", "desc"));
+
+    const ordersEl = document.getElementById("orders");
+    const emptyEl = document.getElementById("empty");
+    const lastUpdatedEl = document.getElementById("lastUpdated");
+
+    function fmtTime(ts) {
+      if (!ts) return "";
+      const d = ts.toDate ? ts.toDate() : new Date(ts);
+      return new Intl.DateTimeFormat(undefined, {
+        hour: "2-digit", minute: "2-digit"
+      }).format(d);
+    }
+
+    function render(documents) {
+      ordersEl.innerHTML = "";
+      if (documents.length === 0) {
+        emptyEl.hidden = false;
+      } else {
+        emptyEl.hidden = true;
+        for (const doc of documents) {
+          const data = doc.data();
+          const statusClass = data.status === "Ready" ? "ready" : "in-progress";
+          const card = document.createElement("div");
+          card.className = "card";
+          card.innerHTML = `
+            <div class="left">
+              <div class="name">${data.customerName ?? "Guest"}</div>
+              <div class="drink">${data.drink ?? ""} • ${fmtTime(data.timeOrdered)}</div>
+            </div>
+            <div class="status ${statusClass}" aria-label="Status">${data.status}</div>
+          `;
+          ordersEl.appendChild(card);
+        }
+      }
+      const now = new Date();
+      lastUpdatedEl.textContent = `Live — ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    }
+
+    // Real-time listener
+    onSnapshot(q, (snapshot) => {
+      const docs = snapshot.docs;
+      render(docs);
+    }, (error) => {
+      console.error("Failed to load orders:", error);
+      lastUpdatedEl.textContent = "Connection issue. Retrying…";
+    });
+  </script>
+</body>
+</html>
